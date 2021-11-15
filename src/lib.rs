@@ -1,7 +1,6 @@
 use serde_json::Value;
 use thiserror::Error;
 
-
 /// The main struct for getting geocoding data.
 #[derive(Clone, PartialEq, Debug)]
 pub struct Nominatim {
@@ -12,6 +11,8 @@ pub struct Nominatim {
     pub osm_id: usize,
     /// Address is only available on search.
     pub address: Option<Address>,
+    /// Polygon is only available on search.
+    pub polygon: Option<Polygon>,
 }
 
 impl Nominatim {
@@ -38,7 +39,7 @@ impl Nominatim {
     /// Get data from the name of a location.
     pub async fn search<T: AsRef<str>>(name: T) -> Result<Self, NominatimError> {
         let uri = &format!(
-            "https://nominatim.openstreetmap.org/search?q={}&format=json",
+            "https://nominatim.openstreetmap.org/search?q={}&format=json&polygon_geojson=1",
             name.as_ref().replace(" ", "+")
         );
 
@@ -77,10 +78,14 @@ impl Nominatim {
 
     /// Check the status of the nominatim server.
     pub async fn status() -> Result<(), NominatimError> {
-        let plaintext = match surf::get("https://nominatim.openstreetmap.org/status.php?format=json").recv_string().await {
-            Ok(data) => data,
-            Err(error) => return Err(NominatimError::Http(error.to_string())),
-        };
+        let plaintext =
+            match surf::get("https://nominatim.openstreetmap.org/status.php?format=json")
+                .recv_string()
+                .await
+            {
+                Ok(data) => data,
+                Err(error) => return Err(NominatimError::Http(error.to_string())),
+            };
 
         let json: Value = match serde_json::from_str(&plaintext) {
             Ok(data) => data,
@@ -169,6 +174,11 @@ impl Nominatim {
             None => None,
         };
 
+        let polygon = match geocode_json.get("geojson") {
+            Some(data) => Polygon::from_json(data),
+            None => None,
+        };
+
         return Ok(Self {
             latitude,
             longitude,
@@ -176,6 +186,7 @@ impl Nominatim {
             place_id: place_id.clone(),
             osm_id: osm_id.clone(),
             address,
+            polygon,
         });
     }
 }
@@ -187,6 +198,35 @@ pub enum NominatimError {
     Http(String),
     #[error("json error {0}")]
     Json(String),
+}
+
+#[derive(Clone, PartialEq, Debug, serde::Deserialize)]
+pub struct Polygon {
+    coordinates: Vec<Vec<f64>>,
+}
+
+impl Polygon {
+    // TODO: Get rid of unwraps...
+    pub fn from_json(data: &Value) -> Option<Self> {
+        let coordinates = match &data["coordinates"] {
+            Value::Array(a) => a,
+            _ => return None,
+        };
+
+        let coordinates = coordinates
+            .iter()
+            .map(|coordinate| {
+                coordinate
+                    .as_array()
+                    .unwrap()
+                    .into_iter()
+                    .map(|point| point.as_f64().unwrap())
+                    .collect()
+            })
+            .collect();
+
+        Some(Self { coordinates })
+    }
 }
 
 #[derive(Clone, PartialEq, Debug)]

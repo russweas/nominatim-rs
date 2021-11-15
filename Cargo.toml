@@ -16,6 +16,7 @@ license = "MIT"
 surf = "2"
 thiserror = "1"
 serde_json = "1"
+serde = "1.0.130"
 
 [dev-dependencies]
 async-std = { version = "1.9.0", features = ["attributes"] }
